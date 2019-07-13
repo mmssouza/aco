@@ -13,11 +13,14 @@ from scipy.spatial.distance import pdist,squareform
 from multiprocessing import Pool
 from functools import partial
 
-raw_data = pylab.loadtxt("a280.tsp",skiprows = 6,usecols = (1,2),comments='E')
-dist = squareform(pdist(raw_data))
+#raw_data = pylab.loadtxt("a280.tsp",skiprows = 6,usecols = (1,2),comments='E')
+#dist = squareform(pdist(raw_data))
+dist = pylab.fromfile("usca312_dist.txt",sep = " ")
+dist = dist.reshape(312,312)
 n = dist.shape[0]
+aux = dist.max()
 for i in range(n):
- dist[i,i] = 1.
+ dist[i,i] = 10*aux
 
 config = configparser.ConfigParser()
 config.read("parameters.conf")
@@ -81,7 +84,7 @@ def AtualizaFeromonios(s,tau,fit):
 
 if __name__ == '__main__':
 # hf = []
- p = Pool(4)
+ p = Pool(2)
  tau = Epsilon*pylab.ones((n,n))
  for kk in scipy.arange(500):
   sa = p.map(partial(GeraSolucoes, tau=tau),range(na))
