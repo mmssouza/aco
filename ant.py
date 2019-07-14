@@ -7,7 +7,6 @@ Created on Mon Jul  2 20:10:52 2018
 """
 
 import scipy
-import pylab
 import configparser
 from scipy.spatial.distance import pdist,squareform
 from multiprocessing import Pool
@@ -15,7 +14,7 @@ from functools import partial
 
 #raw_data = pylab.loadtxt("a280.tsp",skiprows = 6,usecols = (1,2),comments='E')
 #dist = squareform(pdist(raw_data))
-dist = pylab.fromfile("usca312_dist.txt",sep = " ")
+dist = scipy.fromfile("usca312_dist.data",sep = " ")
 dist = dist.reshape(312,312)
 n = dist.shape[0]
 aux = dist.max()
@@ -34,8 +33,7 @@ rho = float(parms['rho']) # pheromone evaporation rate
 Q = float(parms['Q']) # pheromone deposit gain
 Epsilon = float(parms['Epsilon']) # smallest pheromone deposit
 
-
-def Sorteia(k,tau,nu = pylab.ones((n,n))):
+def Sorteia(k,tau,nu = scipy.ones((n,n))):
    p = scipy.array([(tau[k,j]**alpha) * (1./nu[k,j]**beta) for j in range(n)]) 
    p = scipy.hstack(([0],p/p.sum())).cumsum()
    return scipy.where(scipy.rand() > p)[0].argmax()
@@ -46,17 +44,26 @@ def GeraSolucoes(i,tau):
    l = [orig]
    U.remove(orig)
    
-   while len(l) < n:
+   while len(U) > 0:
      aux = Sorteia(orig,tau,dist)
+     l.append(aux)
      if aux in U:
-      l.append(aux)
       U.remove(aux)
       orig = aux
+
+   # remove loops
+   l.reverse()
+   for i in l.copy():
+    while (l.count(i) > 1):   
+      l.remove(i) 
+   l.reverse()
+   l.append(0)
    return l
 
+
 def AvaliaSolucoes(s):
-   f = lambda x: pylab.sum([dist[i,j] for i,j in zip(x,x[1:])])
-   return pylab.array([f(x) for x in s])
+   f = lambda x: scipy.sum([dist[i,j] for i,j in zip(x,x[1:])])
+   return scipy.array([f(x) for x in s])
 
 def AtualizaFeromonios(s,tau,fit):
 
@@ -64,7 +71,7 @@ def AtualizaFeromonios(s,tau,fit):
     for j,k in zip(xa[0:],xa[1:]):
      tau[j,k] =  tau[j,k] + Q/float(fit[i])
      tau[k,j] =  tau[k,j] + Q/float(fit[i])
-   idx =  pylab.where(tau>Epsilon)
+   idx =  scipy.where(tau>Epsilon)
    tau[idx] = (1.-rho)*tau[idx]
     
    return tau
@@ -85,7 +92,7 @@ def AtualizaFeromonios(s,tau,fit):
 if __name__ == '__main__':
 # hf = []
  p = Pool(2)
- tau = Epsilon*pylab.ones((n,n))
+ tau = Epsilon*scipy.ones((n,n))
  for kk in scipy.arange(500):
   sa = p.map(partial(GeraSolucoes, tau=tau),range(na))
   fit = AvaliaSolucoes(sa)
