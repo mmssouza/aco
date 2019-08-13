@@ -12,94 +12,117 @@ from scipy.spatial.distance import pdist,squareform
 from multiprocessing import Pool
 from functools import partial
 
-#raw_data = pylab.loadtxt("a280.tsp",skiprows = 6,usecols = (1,2),comments='E')
-#dist = squareform(pdist(raw_data))
-dist = scipy.fromfile("usca312_dist.data",sep = " ")
-dist = dist.reshape(312,312)
-n = dist.shape[0]
-aux = dist.max()
-for i in range(n):
- dist[i,i] = 10*aux
-
 config = configparser.ConfigParser()
 config.read("parameters.conf")
+
 parms = config['Default']
 
-#n_hf= 5 # hall of fame (top n_hf best solutions so far)
+infile = parms['infile']
+Niter = int(parms['Niter'])
+Ncpu = int(parms['Ncpu'])
 na = int(parms['na']) # ants number
 alpha = float(parms['alpha']) # ant trend to follow collective trails
-beta = float(parms['beta']) # ant trend to follow individual shortest path
+beta = float(parms['beta'])
 rho = float(parms['rho']) # pheromone evaporation rate
+
 Q = float(parms['Q']) # pheromone deposit gain
 Epsilon = float(parms['Epsilon']) # smallest pheromone deposit
+hf_sz = int(parms['hf_sz']) # Hall of fame size
 
-def Sorteia(k,tau,nu = scipy.ones((n,n))):
-   p = scipy.array([(tau[k,j]**alpha) * (1./nu[k,j]**beta) for j in range(n)]) 
+raw_data = scipy.loadtxt(infile,skiprows = 6,usecols = (1,2),comments='E')
+dist = squareform(pdist(raw_data))
+#dist = scipy.fromfile(infile,sep = " ")
+#dist = dist.reshape(312,312)
+n = dist.shape[0]
+aux = dist.max()
+#for i in range(n):
+# dist[i,i] = 1000*aux
+
+def Sorteia(k,tau,U,nu = scipy.ones((n,n))):
+   p = scipy.zeros(n) 
+   
+   for j in U:
+    p[j] = (tau[k,j]**alpha)*(Q/nu[k,j])**beta
+    
    p = scipy.hstack(([0],p/p.sum())).cumsum()
+   
    return scipy.where(scipy.rand() > p)[0].argmax()
 
 def GeraSolucoes(i,tau):
+
    U = list(range(n))
    orig = 0
    l = [orig]
    U.remove(orig)
-   
+
    while len(U) > 0:
-     aux = Sorteia(orig,tau,dist)
-     l.append(aux)
-     if aux in U:
-      U.remove(aux)
-      orig = aux
+    aux = Sorteia(orig,tau,U,dist)
+    l.append(aux)
+    U.remove(aux)
+    orig = aux
+    
+   l.append(0) 
+   return l 
 
-   # remove loops
-   l.reverse()
-   for i in l.copy():
-    while (l.count(i) > 1):   
-      l.remove(i) 
-   l.reverse()
-   l.append(0)
-   return l
-
-
-def AvaliaSolucoes(s):
-   f = lambda x: scipy.sum([dist[i,j] for i,j in zip(x,x[1:])])
-   return scipy.array([f(x) for x in s])
+f = lambda x: scipy.sum([dist[i,j] for i,j in zip(x,x[1:])])
+      
+AvaliaSolucoes = lambda s: scipy.array([f(x) for x in s])
 
 def AtualizaFeromonios(s,tau,fit):
 
    for (i,xa) in enumerate(s):
-    for j,k in zip(xa[0:],xa[1:]):
-     tau[j,k] =  tau[j,k] + Q/float(fit[i])
-     tau[k,j] =  tau[k,j] + Q/float(fit[i])
-   idx =  scipy.where(tau>Epsilon)
-   tau[idx] = (1.-rho)*tau[idx]
-    
+    for j,k in zip(xa,xa[1:]):
+     tau[j,k] =  rho*tau[j,k] + Q/float(fit[i]) 
+   #idx = scipy.where(tau > Epsilon)
+   #tau[idx] = rho*tau[idx]
+
    return tau
 
-#def HF_Updt(hf,x):
-#  if len(hf) < n_hf:
-#   hf.append(x)
-#   hf.sort(reverse = True)
-#   return
+def HF_Updt(hf,x):
 
-
-  # Hall of fame
-#  aux = scipy.where(x[0] > scipy.array([i[0] for i in hf]))
-#  if len(aux[0]) != 0:
-#   hf.insert(aux[0].min(),x)
-#   hf.pop()
+ x_fit = int(f(x))
+ hf_fit = AvaliaSolucoes(hf).astype(int)
+   
+ if len(hf) < hf_sz:
+   hf.append(x)
+   hf.sort(reverse = False)
+ else:
+   # Hall of fame
+   aux = scipy.where(x_fit <= hf_fit)
+   if len(aux[0]) != 0:
+    i = aux[0].min()
+    if x_fit != hf_fit[i]:
+     hf.insert(i,x)
+     hf.pop()
 
 if __name__ == '__main__':
-# hf = []
- p = Pool(2)
+ 
+ hf = []
+ 
+ if Ncpu > 1:
+  p = Pool(Ncpu)
+  
  tau = Epsilon*scipy.ones((n,n))
- for kk in scipy.arange(500):
-  sa = p.map(partial(GeraSolucoes, tau=tau),range(na))
-  fit = AvaliaSolucoes(sa)
-  tau = AtualizaFeromonios(sa,tau,fit)
-  id_max = fit.argmax()
-  id_min = fit.argmin()
-  print("{:4d} {:5.0f} {:5.0f} {:5.0f} {:5.2f}".format(kk,fit[id_max],fit[id_min],fit.mean(),fit.std()))
- print(sa[fit.argmin()])
-  #HF_Updt(hf,[fit[id_max][0],sa[id_max]])
- #print(hf)
+ 
+ try:
+     for kk in scipy.arange(Niter):
+         
+      if Ncpu > 1:
+       sa = p.map(partial(GeraSolucoes, tau=tau),range(na))
+      else:
+       sa = [GeraSolucoes(i,tau) for i in range(na)] 
+        
+      fit = AvaliaSolucoes(sa)
+      
+      tau = AtualizaFeromonios(sa,tau,fit)
+      
+      id_max = fit.argmax()
+      id_min = fit.argmin()
+      print("{:4d} {:5.0f} {:5.0f} {:5.0f}".format(kk,fit[id_max],fit[id_min],fit.mean()))
+      HF_Updt(hf,sa[id_min])
+ except (KeyboardInterrupt, SystemExit):
+      pass
+      
+ print(hf[0])
+ print(AvaliaSolucoes(hf))
+      
